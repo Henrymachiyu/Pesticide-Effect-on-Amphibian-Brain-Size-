@@ -1,0 +1,1678 @@
+---
+title: "ANOVA,MANOVA, and Posthoc"
+author: "Chiyu Ma"
+date: "12/19/2020"
+output: 
+  html_document:
+    toc:  true
+    toc_float:  true
+    code_folding:  show
+---
+
+# Loading packages
+
+```{r,message=FALSE,warning=FALSE}
+library("readxl")
+library("ggplot2")
+library('tidyverse')
+library("grid")
+library('gridExtra')
+library("ggpubr")
+library("rstatix")
+library("stats")
+library("pander")
+library("lme4")
+```
+
+
+```{r}
+my_theme <- theme_bw()+
+  theme(plot.title = element_text(hjust=0.5),
+        axis.text.x = element_text(size=11),
+        axis.text.y = element_text(size = 11,angle=45),
+        axis.title = element_text(size = 13),
+        plot.subtitle   = element_text(color="coral",hjust=0.5)
+)
+```
+
+This chunk is used to set up the theme for the visualizations 
+
+# Loading the data, and data correction 
+
+```{r}
+data <- read_xls("Woodley data ready for R V2.xls")
+data$pesticide[which(data$pesticide == "Salt L")]="Water"
+data$pesticide[which(data$pesticide == "Salt H")]="Water"
+data$pesticide[which(data$combo=="Control")]= "Water"
+data$salt[which(data$combo == "Chlor H")]="N"
+data$salt[which(data$combo == "Chlor L")]="N"
+```
+
+1. We first change the Salt L and Salt High in pesticide category to water 
+2. We change pesticide that shows control in the combo column to water
+3. We change the salt level labeled on Chlor H and Chlor L to N so that it matches the combo column 
+4. By doing the above correction, we will have a similar setting as the one described in the Introduction Power point. 
+
+# EDA
+
+```{r,warning=FALSE}
+
+ ggplot(data,aes(imageset))+
+  geom_bar(fill="skyblue")+
+  labs(x="Image Set",y="Number of Image Set",
+       title = "The distribution of Image Set")+
+  my_theme
+
+ggplot(data,aes(person))+
+  geom_bar(fill="skyblue")+
+  labs(x="Researchers",y="Number of sample collected",
+       title = "The distribution of samples collected by Researchers")+
+  my_theme
+
+ggplot(data,aes(tw))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="linear measurement of telencephalon width, mm",y="Number of samples",
+       title = "The distribution of telencephalon width")+
+  my_theme
+
+ggplot(data,aes(tl))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="telencephalon length, mm",y="Number of samples",
+       title = "The distribution of telencephalon length")+
+  my_theme
+
+ ggplot(data,aes(otw))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="optic tectum width, mm",y="Number of samples",
+       title = "The distribution of optic tectum width")+
+  my_theme
+ 
+ 
+ ggplot(data,aes(otl))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="optic tectum length, mm",y="Number of samples",
+       title = "The distribution of optic tectum length")+
+  my_theme
+ 
+ 
+ ggplot(data,aes(dw))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="diencephalon width, mm",y="Number of samples",
+       title = "The distribution of diencephalon width")+
+  my_theme
+
+ 
+ ggplot(data,aes(dl))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="diencephalon length, mm",y="Number of samples",
+       title = "The distribution of diencephalon length")+
+  my_theme
+ 
+ ggplot(data,aes(obl))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="olfactory bulb length, mm",y="Number of samples",
+       title = "The distribution of olfactory bulb length")+
+  my_theme
+ 
+  ggplot(data,aes(mw))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="medulla width, mm",y="Number of samples",
+       title = "The distribution of olfactory bulb length")+
+  my_theme
+ 
+  ggplot(data,aes(bodymass))+
+  geom_histogram(fill="skyblue",bins = 30,col="black")+
+  labs(x="bodymass, g",y="Number of samples",
+       title = "The distribution of tadploe bodymass")+
+  my_theme
+  
+  
+   ggplot(data,aes(stage))+
+  geom_histogram(fill="skyblue",bins = 30,col="black",stat = "count")+
+  labs(x="Stage",y="Number of samples",
+       title = "The distribution of tadploe growth stage")+
+  my_theme
+   
+  ggplot(data,aes(pesticide))+
+  geom_histogram(fill="skyblue",bins = 30,col="black",stat = "count")+
+  labs(x="Pesticide with concentration",y="Number of samples",
+       title = "The distribution of Pesticide with concentration")+
+  my_theme
+    
+
+  ggplot(data,aes(salt))+
+  geom_histogram(fill="skyblue",bins = 30,col="black",stat = "count")+
+  labs(x="Salt with concentration",y="Number of samples",
+       title = "The distribution of Salt with concentration")+
+  my_theme
+
+   
+```
+
+This chunk plots the distribution of all the variables except combo
+
+```{r}
+table(data$combo)
+```
+
+combo variable is displayed in a table format. The setting of the combo is similar to what described in the experiment setting except two missing rows.
+
+One row is missing in experiment 1 and another row is missing in the experiment 2. 
+
+# Separating data into experiment 1 and experiment 2 
+
+```{r,message=FALSE,warning=FALSE}
+data2 <- data %>% separate(pesticide, 
+                c("pesticide2", "pesticidecon"), remove = FALSE)
+
+experiment1 <- data2 %>% filter(data2$salt == "N") 
+experiment2 <- data2 %>% filter(data2$pesticide2 %in% c("Mal", "Chlor", "Cy", "Per", "Ethanol", "Water"))
+
+experiment1$pesticidecon[experiment1$pesticide2 %in% c("Ethanol", "Water")] = NaN
+experiment2$pesticidecon[experiment2$pesticide2 %in% c("Ethanol", "Water")] = NaN
+
+```
+
+1. Separate pesticide column into 2 columns. Pesticide 2: Pesticide Category, pesticidecon: Pesticide concentration 
+2. Set the concentration of ethanol and water as NaN (Undefined)
+
+
+# Experiment 1 
+## Two Way ANOVA on Body Mass 
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  anova_test(bodymass~pesticide2 * pesticidecon)
+```
+
+1. Interaction is statistically insignificant 
+2. Only the pesticide category has statistically significant effect 
+3. Need to look at the Pesticide effect alone in post-hoc study 
+
+### Post-Hoc on Body Mass 
+
+```{r}
+test_posthoc_exp1 <-experiment1%>%
+  tukey_hsd(bodymass~pesticide2)
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+```
+
+This chunk performed Tukey-test on pesticide category in terms of mean body mass. The pairs with p-value <= 0.05 is shown
+
+1. Mal has associated with statistically significant smaller body mass than Imi and Ethanol. 
+
+### Visualization for Body Mass
+
+```{r,message=FALSE,warning=FALSE}
+
+BM_exp1 = experiment1%>%
+  group_by(pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(bodymass,na.rm=TRUE),
+             std_dev = sd(bodymass,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+ggplot(BM_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole Body Mass",
+       title = "The mean Body Mass by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme
+  
+```
+
+## Experiment 1 MANOVA
+
+```{r}
+manova_test = manova(cbind(tw,tl,dw,dl,otw,otl,obl,mw)~pesticide2 * pesticidecon,data=experiment1)
+
+manova_test%>%pander()
+```
+This chunk shows the MANOVA result for the 8 dimensions of brain measurements
+
+1. Pesticide category, pesticide Concentration, and Interaction terms all have the significant effect on brain dimensions. 
+2. Will look at ANOVA test on each brain dimension with Post-hoc Test 
+
+### Two way ANOVA for MW
+
+```{r,warning=FALSE,message=FALSE}
+experiment1%>%
+  anova_test(mw~pesticide2 * pesticidecon)
+```
+1. Interaction term is statistically significant
+
+
+#### Post-hoc test for MW
+
+```{r,warning=FALSE,message=FALSE}
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(mw~pesticide2)%>%
+  pander()
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean mw by each concentration level.
+
+```{r}
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(mw~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed Tukey-test on pesticide category in terms of mean MW. The pairs with p-value <= 0.05 are shown
+
+### Visualization for MW
+
+```{r,message=FALSE,warning=FALSE}
+MW_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(mw,na.rm=TRUE),
+             std_dev = sd(mw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(MW_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole MW ",
+       title = "The mean MW by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+### Two way ANOVA For TW
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  anova_test(tw~pesticide2 * pesticidecon)%>%
+  pander()
+
+```
+1. Pesticide, concentration and interactions are statistically significant
+
+####  Post-Hoc for TW
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(tw~pesticide2)%>%
+  pander()
+
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(tw~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean TW by each concentration level and a Tukey-test on pesticide category in terms of mean TW. The pairs with p-value <= 0.05 are shown
+
+
+### Visualization for TW
+
+```{r}
+
+TW_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(tw,na.rm=TRUE),
+             std_dev = sd(tw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(TW_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole TW ",
+       title = "The mean TW by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+
+```
+
+### Two way ANOVA for TL 
+
+```{r,message=FALSE,warning=FALSE}
+
+experiment1%>%
+  anova_test(tl~pesticide2 * pesticidecon)%>%
+  pander()
+
+```
+1. The interaction term is statistically significant
+
+####  Post-Hoc for TL
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(tl~pesticide2)%>%
+  pander()
+
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(tl~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean TL by each concentration level and a Tukey-test on pesticide category in terms of mean TL. The pairs with p-value <= 0.05 are shown
+
+### Visualization for TL
+
+```{r}
+
+TL_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(tl,na.rm=TRUE),
+             std_dev = sd(tl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(TL_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole TL ",
+       title = "The mean TL by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+### Two way ANOVA for OTW 
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  anova_test(otw~pesticide2 * pesticidecon)%>%
+  pander()
+
+```
+1. Pesticide category, concentration and the interaction are statistically significant. 
+
+#### Post-Hoc for OTW
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(otw~pesticide2)%>%
+  pander()
+
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(otw~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean OTW by each concentration level and a Tukey-test on pesticide category in terms of mean OTW. The pairs with p-value <= 0.05 are shown
+
+### Visualization for OTW
+
+```{r,message=FALSE}
+OTW_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(otw,na.rm=TRUE),
+             std_dev = sd(otw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OTW_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OTW ",
+       title = "The mean OTW by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+### Two way ANOVA for OTL 
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  anova_test(otl~pesticide2 * pesticidecon)%>%
+  pander()
+
+```
+#### Post-hoc for OTL
+
+```{r,message=FALSE,warning=FALSE}
+
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(otl~pesticide2)%>%
+  pander()
+
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(otl~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean OTL by each concentration level and a Tukey-test on pesticide category in terms of mean OTL. The pairs with p-value <= 0.05 are shown
+
+### Visualization for OTL
+
+```{r,message=FALSE}
+OTL_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(otl,na.rm=TRUE),
+             std_dev = sd(otl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OTL_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OTL ",
+       title = "The mean OTL by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+### Two way ANOVA for OBL 
+
+```{r,warning=FALSE,message=FALSE}
+experiment1%>%
+  anova_test(obl~pesticide2 * pesticidecon)%>%
+  pander()
+
+```
+
+#### Post-hoc for OBL
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(obl~pesticide2)%>%
+  pander()
+
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(obl~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean OBL by each concentration level and a Tukey-test on pesticide category in terms of mean OBL. The pairs with p-value <= 0.05 are shown
+
+### Visualization for OBL
+
+```{r}
+OBL_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(obl,na.rm=TRUE),
+             std_dev = sd(obl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OBL_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OBL ",
+       title = "The mean OBL by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+
+### Two way ANOVA for DW
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  anova_test(dw~pesticide2 * pesticidecon)%>%
+  pander()
+
+
+```
+1. Interaction term is not statistically significant 
+2. Only look at the pesticide effect and its concentration 
+3. The interaction is very close to 0.05, so we still perform a post-hoc test on interaction term for the sake of completeness 
+
+#### Post hoc on interaction 
+
+```{r,warning=FALSE,message=FALSE}
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(dw~pesticide2)%>%
+  pander()
+
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(dw~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean DW by each concentration level and a Tukey-test on pesticide category in terms of mean DW. The pairs with p-value <= 0.05 are shown
+
+### visualization interaction 
+
+```{r,warning=FALSE,message=FALSE}
+DW_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dw,na.rm=TRUE),
+             std_dev = sd(dw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(DW_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DW ",
+       title = "The mean DW by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+### Post Hoc of DW on Pesticide 
+
+```{r}
+test_posthoc_exp1 <-experiment1%>%
+  tukey_hsd(dw~pesticide2)
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed a Tukey-test on pesticide category in terms of mean DW. The pairs with p-value <= 0.05 are shown
+
+### Visualization of Pesticide DW
+
+```{r,message=FALSE,warning=FALSE}
+DW_Pesti_exp1 = experiment1%>%
+  group_by(pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dw,na.rm=TRUE),
+             std_dev = sd(dw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+ggplot(DW_Pesti_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DW",
+       title = "The mean DW by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme
+```
+
+#### Post hoc DW on Concentration 
+
+```{r}
+test_posthoc_exp1 <-experiment1%>%
+  tukey_hsd(dw~pesticidecon)
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+
+This chunk performed  a Tukey-test on pesticide concentration in terms of mean DW. The pairs with p-value <= 0.05 is shown
+
+### Visualization for concentration 
+
+```{r,message=FALSE,warning=FALSE}
+DW_con_exp1 = experiment1%>%
+  group_by(pesticidecon)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dw,na.rm=TRUE),
+             std_dev = sd(dw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+ggplot(DW_con_exp1,aes(x=pesticidecon,y=mean,col=pesticidecon))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Concentration",
+       y="Mean Tadpole DW",
+       title = "The mean DW by Pesticide concentration",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme
+
+```
+
+### Two way ANOVA for DL 
+
+```{r,warning=FALSE,message=FALSE}
+experiment1%>%
+  anova_test(dl~pesticide2 * pesticidecon)%>%
+  pander()
+```
+#### Post hoc for DL
+
+```{r,message=FALSE,warning=FALSE}
+experiment1%>%
+  group_by(pesticidecon)%>%
+  anova_test(dl~pesticide2)%>%
+  pander()
+
+test_posthoc_exp1 <-experiment1%>%
+  group_by(pesticidecon)%>%
+  tukey_hsd(dl~pesticide2)
+
+
+test_posthoc_exp1[which(test_posthoc_exp1$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed one way ANOVA of pesticide category in terms of mean DL by each concentration level and a Tukey-test on pesticide category in terms of mean DL. The pairs with p-value <= 0.05 are shown
+
+### Visualization for DL
+
+```{r,warning=FALSE,message=FALSE}
+DL_exp1 = experiment1%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dl,na.rm=TRUE),
+             std_dev = sd(dl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(DL_exp1,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DL ",
+       title = "The mean DL by Pesticide",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+```
+
+## Conclusion 
+
+1. Different pesticides have different effects on different brain dimensions 
+2. Ethanol generally associates a significantly larger brain measurement than water 
+
+
+
+# Experiment 2 
+
+## Three Way ANOVA on Body Mass 
+
+```{r,message=FALSE,warning=FALSE}
+experiment2%>%
+  anova_test(bodymass~pesticide2 * pesticidecon*salt)
+
+```
+The interaction is significant 
+
+### Post Hoc for Bodymass 
+
+```{r,message=FALSE,warning=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(bodymass~pesticide2*pesticidecon)%>%
+  pander()
+
+```
+This chunk performed two way ANOVA of pesticide category in terms of mean body mass by each concentration level.
+
+1. The interaction is significant at salt level low
+2. Only look at the test for salt level low 
+
+```{r,message=FALSE,warning=FALSE}
+post_hoc2 = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  anova_test(bodymass~pesticide2)
+
+post_hoc2%>%
+  pander()
+
+Tukey_L = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(bodymass~pesticide2)
+
+Result_H = Tukey_L%>% filter(salt == "L",pesticidecon=="H")
+
+Result_L = Tukey_L%>% filter(salt == "L",pesticidecon=="L")
+
+Result_H[which(Result_H$p.adj<=0.05),]%>%
+  pander()
+
+Result_L[which(Result_L$p.adj<=0.05),]%>%
+  pander()
+```
+
+This chunk performed an one way ANOVA of pesticide category in terms of mean body mass by each concentration level and salt level and a Tukey-test on pesticide category in terms of mean body mass. The pairs with p-value <= 0.05 are shown
+
+### Visualization 
+
+```{r,warning=FALSE,message=FALSE}
+Exp2_SaltL = subset(experiment2,experiment2$salt=="L")
+Exp2_SaltH = subset(experiment2,experiment2$salt=="H")
+Exp2_SaltN = subset(experiment2,experiment2$salt=="N")
+
+Bodymass_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(bodymass,na.rm=TRUE),
+             std_dev = sd(bodymass,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(Bodymass_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole Body mass ",
+       title = "The mean bodymass by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+## MANOVA for experiment 2 
+
+```{r}
+manova(cbind(tw,tl,dw,dl,otw,otl,obl,mw)~pesticide2 * pesticidecon*salt,data=experiment2)%>%
+  pander()
+
+
+```
+### Three way ANOVA on MW 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  anova_test(mw~pesticide2 * pesticidecon*salt)
+```
+Interaction is significant 
+
+```{r,message=FALSE,warning=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(mw~pesticide2*pesticidecon)%>%
+  pander()
+```
+
+This chunk performed an two way ANOVA of pesticide category in terms of mean MW by each  salt level
+
+```{r,message=FALSE,warning=FALSE}
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(mw~pesticide2)
+
+Tukey_SL[which(Tukey_SL$p.adj<=0.05),]%>%
+  pander()
+```
+
+This chunk performed an one way ANOVA of pesticide category in terms of mean MW by each concentration level and salt level and a Tukey-test on pesticide category in terms of mean MW. The pairs with p-value <= 0.05 are shown
+
+### Visualization salt H
+
+```{r,message=FALSE,warning=FALSE}
+MW_exp2 = Exp2_SaltH%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(mw,na.rm=TRUE),
+             std_dev = sd(mw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(MW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole MW ",
+       title = "The mean MW by Pesticide at salt level High",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+```
+
+### visualization salt L
+
+```{r}
+
+MW_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(mw,na.rm=TRUE),
+             std_dev = sd(mw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(MW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole MW ",
+       title = "The mean MW by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+
+```
+
+```{r,message=FALSE,warning=FALSE}
+MW_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(mw,na.rm=TRUE),
+             std_dev = sd(mw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(MW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole MW ",
+       title = "The mean MW by Pesticide at salt level None",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+
+```
+
+### Three Way ANOVA for TW 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  anova_test(tw~pesticide2 * pesticidecon*salt)
+```
+Interaction is significant 
+
+```{r,message=FALSE,warning=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(tw~pesticide2*pesticidecon)%>%
+  pander()
+```
+
+This chunk performed an two way ANOVA of pesticide category in terms of mean TW by each salt level
+
+Interaction is significant on salt level L and N
+
+```{r}
+
+experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  anova_test(tw~pesticide2)%>%
+  pander()
+
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(tw~pesticide2)
+
+Tukey_SLL=Tukey_SL%>%filter(salt=="L")
+
+Tukey_SLL[which(Tukey_SLL$p.adj<=0.05),]%>%
+  pander()
+
+Tukey_SN=Tukey_SL%>%filter(salt=="N")
+
+Tukey_SN[which(Tukey_SN$p.adj<=0.05),]%>%
+  pander()
+
+```
+
+This chunk performed an one way ANOVA of pesticide category in terms of mean MW by each concentration level and salt level and a Tukey-test on pesticide category in terms of mean TW. The pairs with p-value <= 0.05 are shown
+
+### Visualization 
+
+```{r,message=FALSE,warning=FALSE}
+TW_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(tw,na.rm=TRUE),
+             std_dev = sd(tw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(TW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole TW ",
+       title = "The mean TW by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+```
+
+```{r,message=FALSE,warning=FALSE}
+TW_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(tw,na.rm=TRUE),
+             std_dev = sd(tw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(TW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole TW ",
+       title = "The mean TW by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+```
+
+### Three Way ANOVA for TL 
+
+```{r,message=FALSE,warning=FALSE}
+experiment2%>%
+  anova_test(tl~pesticide2 * pesticidecon*salt)
+
+```
+Interaction is significant 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(tl~pesticide2*pesticidecon)%>%
+  pander()
+```
+
+This chunk performed a two way ANOVA of pesticide category and concentration in terms of mean TL by each salt level 
+
+Interaction is significant on salt level low and none 
+
+```{r}
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(tl~pesticide2)
+
+Tukey_SLL=Tukey_SL%>%filter(salt=="L")
+
+Tukey_SLL[which(Tukey_SLL$p.adj<=0.05),]%>%
+  pander()
+
+Tukey_SN=Tukey_SL%>%filter(salt=="N")
+
+Tukey_SN[which(Tukey_SN$p.adj<=0.05),]%>%
+  pander()
+
+```
+
+This chunk performed a Tukey-test on pesticide category in terms of mean TL by each concentration level and salt level. The pairs with p-value <= 0.05 are shown. (I did not write down the ANOVA test because a non-empty result from tukey test implies a statistically significant result in the one way ANOVA test)
+
+### Visualization 
+
+```{r,message=FALSE,warning=FALSE}
+TL_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(tl,na.rm=TRUE),
+             std_dev = sd(tl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(TL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole TL ",
+       title = "The mean TL by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+```
+```{r,warning=FALSE,message=FALSE}
+TL_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(tl,na.rm=TRUE),
+             std_dev = sd(tl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(TL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole TL ",
+       title = "The mean TL by Pesticide at salt level None",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+### Three way ANOVA for OTW 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  anova_test(otw~pesticide2 * pesticidecon*salt)
+```
+Interaction is significant 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(otw~pesticide2*pesticidecon)%>%
+  pander()
+```
+Interaction is significant on salt level low and None
+
+This chunk performed a two way  on pesticide category in terms of mean OTW by each salt level. 
+
+```{r}
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(otw~pesticide2)
+
+Tukey_SN=Tukey_SL%>%filter(salt=="N")
+
+Tukey_SN[which(Tukey_SN$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed a Tukey-test on pesticide category in terms of mean OTW by each concentration level and salt level. The pairs with p-value <= 0.05 are shown. (I did not write down the ANOVA test because a non-empty result from tukey test implies a statistically significant result in the one way ANOVA test)
+
+### Visualization
+
+```{r,warning=FALSE,message=FALSE}
+OTW_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(otw,na.rm=TRUE),
+             std_dev = sd(otw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OTW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OTW ",
+       title = "The mean OTW by Pesticide at salt level None",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+```{r,warning=FALSE,message=FALSE}
+OTW_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(otw,na.rm=TRUE),
+             std_dev = sd(otw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OTW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OTW ",
+       title = "The mean OTW by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+
+
+### Three way ANOVA for OTL 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  anova_test(otl~pesticide2 * pesticidecon*salt)
+```
+Interaction is significant 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(otl~pesticide2*pesticidecon)%>%
+  pander()
+```
+
+This chunk performed a two way ANOVA on pesticide category in terms of mean OTL by each salt level.
+
+Interaction is significant on salt level H and level None 
+
+```{r}
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(otl~pesticide2)
+
+Tukey_SN=Tukey_SL%>%filter(salt=="N")
+
+Tukey_SN[which(Tukey_SN$p.adj<=0.05),]%>%
+  pander()
+
+Tukey_SH=Tukey_SL%>%filter(salt=="H")
+
+Tukey_SH[which(Tukey_SN$p.adj<=0.05),]%>%
+  pander()
+```
+
+This chunk performed a Tukey-test on pesticide category in terms of mean OTL by each concentration level and salt level. The pairs with p-value <= 0.05 are shown. (I did not write down the ANOVA test because a non-empty result from tukey test implies a statistically significant result in the one way ANOVA test)
+
+### Visualization 
+
+```{r,warning=FALSE,message=FALSE}
+OTL_exp2 = Exp2_SaltH%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(otl,na.rm=TRUE),
+             std_dev = sd(otl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OTL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OTL ",
+       title = "The mean OTL by Pesticide at salt level High",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+```{r,warning=FALSE,message=FALSE}
+OTL_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(otl,na.rm=TRUE),
+             std_dev = sd(otl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OTL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OTL ",
+       title = "The mean OTL by Pesticide at salt level None",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+### Three way ANOVA for OBL 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  anova_test(obl~pesticide2 * pesticidecon*salt)
+```
+Interaction is significant 
+
+
+### Two way ANOVA for OBL
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(obl~pesticide2*pesticidecon)%>%
+  pander()
+```
+
+This chunk performed a Two way ANOVA on pesticide category in terms of mean OBL by each salt level. 
+
+Interaction is significant on all level of salt 
+
+```{r}
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(obl~pesticide2)
+
+Tukey_SL[which(Tukey_SL$p.adj<=0.05),]%>%
+  pander()
+```
+
+This chunk performed a Tukey-test on pesticide category in terms of mean OBL by each concentration level and salt level. The pairs with p-value <= 0.05 are shown. (I did not write down the ANOVA test because a non-empty result from tukey test implies a statistically significant result in the one way ANOVA test)
+
+### Visualization for OBL
+
+```{r,warning=FALSE,message=FALSE}
+OBL_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(obl,na.rm=TRUE),
+             std_dev = sd(obl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OBL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OBL ",
+       title = "The mean OBL by Pesticide at salt level None",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+```{r,warning=FALSE,message=FALSE}
+OBL_exp2 = Exp2_SaltH%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(obl,na.rm=TRUE),
+             std_dev = sd(obl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OBL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OBL ",
+       title = "The mean OBL by Pesticide at salt level High",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+```{r,warning=FALSE,message=FALSE}
+OBL_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(obl,na.rm=TRUE),
+             std_dev = sd(obl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(OBL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole OBL ",
+       title = "The mean OTL by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+### Three way ANOVA for DW 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  anova_test(dw~pesticide2 * pesticidecon*salt)
+```
+Interaction is significant
+
+
+```{r,warning=FALSE,message=FALSE}
+
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(dw~pesticide2*pesticidecon)%>%
+  pander()
+
+```
+
+This chunk performed a Two way on pesticide category in terms of mean DW by each salt level.
+
+Interaction is significant on salt low and none 
+
+```{r}
+
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(dw~pesticide2)
+
+Tukey_SLL=Tukey_SL%>%filter(salt=="L")
+
+Tukey_SLL[which(Tukey_SLL$p.adj<=0.05),]%>%
+  pander()
+
+Tukey_SN=Tukey_SL%>%filter(salt=="N")
+
+Tukey_SN[which(Tukey_SN$p.adj<=0.05),]%>%
+  pander()
+
+```
+This chunk performed a Tukey-test on pesticide category in terms of mean DW by each concentration level and salt level. The pairs with p-value <= 0.05 are shown. (I did not write down the ANOVA test because a non-empty result from tukey test implies a statistically significant result in the one way ANOVA test)
+
+### Visualization 
+
+```{r,warning=FALSE,message=FALSE}
+DW_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dw,na.rm=TRUE),
+             std_dev = sd(dw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(DW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DW ",
+       title = "The mean DW by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+```{r}
+DW_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dw,na.rm=TRUE),
+             std_dev = sd(dw,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(DW_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DW ",
+       title = "The mean DW by Pesticide at salt level None",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+
+### Three way ANOVA for DL 
+
+```{r,warning=FALSE,message=FALSE}
+experiment2%>%
+  anova_test(dl~pesticide2 * pesticidecon*salt)
+```
+Interaction is not significant 
+
+```{r,message=FALSE,warning=FALSE}
+experiment2%>%
+  group_by(salt)%>%
+  anova_test(dl~pesticide2*pesticidecon)%>%
+  pander()
+```
+This chunk performed a Two way ANOVA on pesticide category in terms of mean DL by each salt level. 
+
+```{r}
+Tukey_SL = experiment2%>%
+  group_by(salt,pesticidecon)%>%
+  tukey_hsd(dw~pesticide2)
+
+Tukey_SL[which(Tukey_SL$p.adj<=0.05),]%>%
+  pander()
+
+```
+
+This chunk performed a Tukey-test on pesticide category in terms of mean DW by each concentration level and salt level. The pairs with p-value <= 0.05 are shown. (I did not write down the ANOVA test because a non-empty result from tukey test implies a statistically significant result in the one way ANOVA test)
+
+### Visualization
+
+```{r,warning=FALSE,message=FALSE}
+DL_exp2 = Exp2_SaltL%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dl,na.rm=TRUE),
+             std_dev = sd(dl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(DL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DL ",
+       title = "The mean DL by Pesticide at salt level Low",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+```{r,warning=FALSE,message=FALSE}
+DL_exp2 = Exp2_SaltH%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dl,na.rm=TRUE),
+             std_dev = sd(dl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(DL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DL ",
+       title = "The mean DL by Pesticide at salt level High",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+```{r,warning=FALSE,message=FALSE}
+DL_exp2 = Exp2_SaltN%>%
+  group_by(pesticidecon,pesticide2)%>%
+  summarise(count = n(),  #  calculate count, mean, and sd in each group
+             mean = mean(dl,na.rm=TRUE),
+             std_dev = sd(dl,na.rm =TRUE ))%>%
+   mutate(std_error = std_dev / sqrt(count),  #  add standard error of each mean
+         lower = mean - 1.96 * std_error,  #  compute lower bound
+          upper = mean + 1.96 * std_error)
+
+
+ggplot(DL_exp2,aes(x=pesticide2,y=mean,col=pesticide2))+
+  geom_point()+
+  geom_errorbar(aes(ymin = lower,
+                    ymax=upper))+
+  labs(x="Pesticide",
+       y="Mean Tadpole DL ",
+       title = "The mean DL by Pesticide at salt level None",
+       subtitle = "      - Error bars show 95% confidence intervals")+
+  my_theme+
+  facet_grid(pesticidecon~.)
+
+```
+
+
+Conclusion:
+
+By adding salt, ethanol and water generally did not have significant difference on brain measurement 
+
+The effect of pesticides vary across different level of salt, and concentration for different brain dimension. 
+
+
+# Mixed Effect Model
+
+## Mesocosm Exp1 
+```{r,message=FALSE,warning=FALSE}
+exp1_mixed = lmer(bodymass~pesticide2*pesticidecon+(1|mesocosm),data = na.omit(experiment1),REML=FALSE)
+
+exp1_model = lm(bodymass~pesticide2*pesticidecon,data = na.omit(experiment1))
+
+anova(exp1_mixed,exp1_model)%>%
+  pander()
+
+```
+
+This chunk builds a mesocosm mixed effect model and a simple regression model of the terms we used in experiment 1 and compared two models by ANOVA test. 
+
+- There is no statistically significant difference between the two models, and we do not need to include the random effect of mesocosm in experiment 1. 
+
+
+## Person Exp1 
+```{r,message=FALSE,warning=FALSE}
+exp1_mixed = lmer(bodymass~pesticide2*pesticidecon+(1|person),data = na.omit(experiment1),REML=FALSE)
+
+exp1_model = lm(bodymass~pesticide2*pesticidecon,data = na.omit(experiment1))
+
+anova(exp1_mixed,exp1_model)%>%
+  pander()
+
+```
+
+This chunk builds a person mixed effect model and a simple regression model of the terms we used in experiment 1 and compared two models by ANOVA test. 
+
+- There is no statistically significant difference between the two models, and we do not need to include the random effect of person in experiment 1. 
+
+## Mesocosm Exp2 
+
+```{r,warning=FALSE,message=FALSE}
+exp2_mixed = lmer(bodymass ~ pesticide2 * pesticidecon * salt+(1|mesocosm),
+                  data = na.omit(experiment2),REML = FALSE)
+exp2_model = lm(bodymass ~ pesticide2 * pesticidecon * salt,
+                data = na.omit(experiment2))
+anova(exp2_mixed,exp2_model)%>%
+  pander()
+```
+This chunk builds a mesocosm mixed effect model and a simple regression model of the terms we used in experiment 2 and compared two models by ANOVA test. 
+
+- There is statistically significant difference between the two models, and we may need to include the random effect of mesocosm in experiment 2. 
+
+## Person Exp2 
+
+```{r}
+exp2_mixed = lmer(bodymass ~ pesticide2 * pesticidecon * salt+(1|person),
+                  data = na.omit(experiment2),REML = FALSE)
+exp2_model = lm(bodymass ~ pesticide2 * pesticidecon * salt,
+                data = na.omit(experiment2))
+anova(exp2_mixed,exp2_model)%>%
+  pander()
+```
+
+This chunk builds a person mixed effect model and a simple regression model of the terms we used in experiment 2 and compared two models by ANOVA test. 
+
+- There is no statistically significant difference between the two models, and we do not need to include the random effect of mesocosm in experiment 2. 
+
+## Conclusion 
+
+Only the random effect of Mesocosm on experiment 2 is significant, but we believe that the effect is negligible. 
